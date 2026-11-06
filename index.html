@@ -205,7 +205,7 @@ function mmss(t){ t = Math.max(0, Math.ceil(t)); return Math.floor(t/60)+":"+pad
 
 /* ---------- stato ---------- */
 let mcp = null;
-const st = { guida:[], scheda:[], alts:[], diario:[], diarioNext:2, peso:[], pesoNext:2, seduteNext:2, sedute:[], dieta:[], dietaRows:[], dietaTot:[], spesa:[], misure:[], misureNext:2, misDates:[], err:{}, loaded:false, pageErr:null, queue: sget("queue", []), flushing:false, lastQueueErr:null };
+const st = { guida:[], scheda:[], alts:[], diario:[], diarioNext:2, peso:[], pesoNext:2, seduteNext:2, sedute:[], dieta:[], dietaRows:[], dietaTot:[], spesa:[], misure:[], misureNext:2, misDates:[], recupero:[], err:{}, loaded:false, pageErr:null, queue: sget("queue", []), flushing:false, lastQueueErr:null };
 const ui = { tab: sget("tab","oggi"), day:null, variant: sget("variant","A (secondo)"), checks: sget("checks",{}), drafts:{}, busy:{}, status:{}, swap: sget("swap_"+dstr(new Date()), {}), altOpen:{}, calConfirm:false };
 
 /* ---------- carichi, riscaldamento, dischi ---------- */
@@ -368,7 +368,7 @@ async function loadAll(){
   setSync("busy","Carico");
   const jobs = {
     guida: read("Guida!B3:B5"), scheda: read("Scheda!A2:J60"), alts: read("Scheda!O2:R80"), diario: read("Diario!A2:R"),
-    peso: read("Peso!A2:D"), sedute: read("Sedute!A2:B"), misure: read("Misure!A2:H"), misDates: read("Guida!B28:B30"),
+    peso: read("Peso!A2:D"), sedute: read("Sedute!A2:B"), misure: read("Misure!A2:H"), misDates: read("Guida!B28:B30"), recupero: read("Recupero!A2:I"),
     dieta: read("Dieta!A5:M26"), dietaTot: read("Dieta!C30:H31"), spesa: read("Spesa!A9:H20")
   };
   const keys = Object.keys(jobs);
@@ -384,6 +384,7 @@ async function loadAll(){
     else if(k==="sedute"){ st.sedute = v.map((x,i)=>({ row:i+2, date:x[0]||"" })); st.seduteNext = 2 + v.length; }
     else if(k==="misure"){ st.misure = v.map((x,i)=>({ row:i+2, date:x[0]||"", kg:num(x[1]), vita:num(x[2]), braccio:num(x[3]), petto:num(x[4]), coscia:num(x[5]), foto:x[6]||"", note:x[7]||"" })).filter(m=>m.date); st.misureNext = 2 + v.length; }
     else if(k==="misDates") st.misDates = v;
+    else if(k==="recupero") st.recupero = v.filter(x=>x && x[0]).map(x=>({ date:x[0], sonno:num(x[1]), deep:num(x[2]), score:num(x[3]), start:x[4]||"", end:x[5]||"", rhr:num(x[6]), sonno7:num(x[7]), rhr7:num(x[8]) }));
     else if(k==="alts") st.alts = v.filter(x=>x && x[0]).map(x=>({ es:x[0], min:num(x[1]), max:num(x[2]), mus:x[3]||"" }));
     else if(k==="dieta"){ st.dietaRows = v.map((x,i)=>({ row:i+5, r:x })).filter(o=>o.r && o.r[2]); st.dieta = st.dietaRows.map(o=>o.r); }
     else if(k==="dietaTot") st.dietaTot = v;
@@ -597,6 +598,8 @@ function sessionCard(){
   let saved = sget("sess_"+TODAY, null);
   if(saved && !st.sedute.some(x=>x.row===saved.row && x.date===TODAY)){ saved = null; try{ localStorage.removeItem("sp_sess_"+TODAY); localStorage.removeItem("sp_start_"+TODAY); }catch(e){} ui.sess = null; }
   const d = ui.sess || (ui.sess = { energia: saved ? saved.energia : null, sonno: saved ? saved.sonno : null, corsa: saved ? saved.corsa : null, fastidi: saved ? saved.fastidi : "", note: saved ? saved.note : "", durata: saved ? saved.durata : null });
+  const rec = st.recupero.find(x=>x.date===TODAY);
+  if(d.sonno==null && rec && rec.sonno!=null) d.sonno = rec.sonno;
   const start = sget("start_"+TODAY, null);
   if(d.durata==null && start) d.durata = Math.max(1, Math.round((Date.now()-start)/60000));
   const card = h("section",{class:"card", "aria-label":"Chiudi la seduta"});
@@ -701,6 +704,7 @@ function renderPeso(){
   sum.append(h("div",{class:"note"}, "Obiettivo: da +"+fmt(tmin,1)+" a +"+fmt(tmax,1)+" kg a settimana."));
   main.append(sum);
   main.append(calorieCard(tmin, tmax));
+  main.append(recuperoCard());
   main.append(misureCard());
 
   if(st.peso.length){
@@ -710,6 +714,26 @@ function renderPeso(){
   }
 }
 
+
+/* ---------- recupero dall'orologio ---------- */
+function recuperoCard(){
+  const c = h("section",{class:"card"});
+  c.append(h("h3",{style:"margin:0;font-size:18px"},"Recupero"));
+  const L = st.recupero[st.recupero.length-1];
+  if(!L){ c.append(h("div",{class:"note"},"Sonno e frequenza a riposo arrivano dall'orologio quando apri l'app Palestra al mattino.")); return c; }
+  const hm = x=>{ if(x==null) return "–"; const m = Math.round(x*60); return Math.floor(m/60)+"h"+String(m%60).padStart(2,"0"); };
+  let pill = null;
+  if(L.rhr!=null && L.rhr7!=null && st.recupero.length>=4 && L.rhr >= L.rhr7 + 5) pill = h("span",{class:"pill warn"},"FC a riposo alta");
+  else if(L.sonno!=null && L.sonno < 6) pill = h("span",{class:"pill warn"},"Poco sonno");
+  c.append(h("div",{class:"exh"}, h("div",{class:"note"}, "Notte del "+L.date+(L.start&&L.end ? ", dalle "+L.start+" alle "+L.end : "")), pill));
+  c.append(h("div",{class:"stats"},
+    h("div",{class:"stat"}, h("div",{class:"v"}, hm(L.sonno)), h("div",{class:"k"}, "Sonno"+(L.deep!=null ? " · profondo "+fmt(L.deep,0)+" min" : ""))),
+    h("div",{class:"stat"}, h("div",{class:"v"}, L.rhr!=null ? fmt(L.rhr,0) : "–"), h("div",{class:"k"},"FC a riposo (bpm)")),
+    h("div",{class:"stat"}, h("div",{class:"v"}, hm(L.sonno7)), h("div",{class:"k"},"Media sonno 7 giorni")),
+    h("div",{class:"stat"}, h("div",{class:"v"}, L.rhr7!=null ? fmt(L.rhr7,0) : "–"), h("div",{class:"k"},"Media FC riposo 7 giorni"))));
+  if(pill) c.append(h("div",{class:"note"},"Se si ripete per più giorni, valuta una seduta più leggera o di anticipare lo scarico."));
+  return c;
+}
 
 /* ---------- misure del corpo ---------- */
 const MIS = [ ["vita","Vita all'ombelico", -1], ["braccio","Braccio contratto", 1], ["petto","Petto", 1], ["coscia","Coscia", 1] ];
@@ -1051,7 +1075,7 @@ function volumeCard(){
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click", ()=>{ ui.tab = b.dataset.tab; sset("tab", ui.tab); render(); window.scrollTo(0,0); }));
 
 /* ---------- copia locale: l'app si apre subito con gli ultimi dati, poi si aggiorna ---------- */
-const SNAP_KEYS = ["guida","scheda","alts","diario","diarioNext","peso","pesoNext","seduteNext","sedute","dieta","dietaRows","dietaTot","spesa","misure","misureNext","misDates"];
+const SNAP_KEYS = ["guida","scheda","alts","diario","diarioNext","peso","pesoNext","seduteNext","sedute","dieta","dietaRows","dietaTot","spesa","misure","misureNext","misDates","recupero"];
 function saveSnap(){ const o = { t: Date.now() }; SNAP_KEYS.forEach(k=>{ o[k] = st[k]; }); sset("snap", o); }
 function loadSnap(){
   const o = sget("snap", null);
