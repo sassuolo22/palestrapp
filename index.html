@@ -205,7 +205,7 @@ function mmss(t){ t = Math.max(0, Math.ceil(t)); return Math.floor(t/60)+":"+pad
 
 /* ---------- stato ---------- */
 let mcp = null;
-const st = { guida:[], scheda:[], alts:[], diario:[], diarioNext:2, peso:[], pesoNext:2, seduteNext:2, dieta:[], dietaRows:[], dietaTot:[], spesa:[], misure:[], misureNext:2, misDates:[], err:{}, loaded:false, pageErr:null, queue: sget("queue", []), flushing:false, lastQueueErr:null };
+const st = { guida:[], scheda:[], alts:[], diario:[], diarioNext:2, peso:[], pesoNext:2, seduteNext:2, sedute:[], dieta:[], dietaRows:[], dietaTot:[], spesa:[], misure:[], misureNext:2, misDates:[], err:{}, loaded:false, pageErr:null, queue: sget("queue", []), flushing:false, lastQueueErr:null };
 const ui = { tab: sget("tab","oggi"), day:null, variant: sget("variant","A (secondo)"), checks: sget("checks",{}), drafts:{}, busy:{}, status:{}, swap: sget("swap_"+dstr(new Date()), {}), altOpen:{}, calConfirm:false };
 
 /* ---------- carichi, riscaldamento, dischi ---------- */
@@ -336,7 +336,7 @@ function applyQueueOverlay(){
     } else if(q.kind==="peso"){
       const ex = st.peso.find(p=>p.row===q.row); if(ex) ex.kg = v[1]; else st.peso.push({ row:q.row, date:v[0], kg:v[1], media:null, vari:null });
       st.pesoNext = Math.max(st.pesoNext, q.row+1);
-    } else if(q.kind==="sedute"){ st.seduteNext = Math.max(st.seduteNext, q.row+1); }
+    } else if(q.kind==="sedute"){ st.seduteNext = Math.max(st.seduteNext, q.row+1); if(!st.sedute.some(x=>x.row===q.row)) st.sedute.push({ row:q.row, date:v[0] }); }
     else if(q.kind==="misure"){
       const e = { row:q.row, date:v[0], kg:v[1]===""?null:v[1], vita:v[2]===""?null:v[2], braccio:v[3]===""?null:v[3], petto:v[4]===""?null:v[4], coscia:v[5]===""?null:v[5], foto:v[6], note:v[7]||"" };
       const ex = st.misure.find(m=>m.row===q.row); if(ex) Object.assign(ex, e); else st.misure.push(e);
@@ -368,7 +368,7 @@ async function loadAll(){
   setSync("busy","Carico");
   const jobs = {
     guida: read("Guida!B3:B5"), scheda: read("Scheda!A2:J60"), alts: read("Scheda!O2:R80"), diario: read("Diario!A2:R"),
-    peso: read("Peso!A2:D"), sedute: read("Sedute!A2:A"), misure: read("Misure!A2:H"), misDates: read("Guida!B28:B30"),
+    peso: read("Peso!A2:D"), sedute: read("Sedute!A2:B"), misure: read("Misure!A2:H"), misDates: read("Guida!B28:B30"),
     dieta: read("Dieta!A5:M26"), dietaTot: read("Dieta!C30:H31"), spesa: read("Spesa!A9:H20")
   };
   const keys = Object.keys(jobs);
@@ -381,7 +381,7 @@ async function loadAll(){
     else if(k==="scheda") st.scheda = v.filter(x=>x && x[1]).map(x=>({ giorno:x[0], es:x[1], serie:num(x[2])||3, min:num(x[3]), max:num(x[4]), rir12:x[5]||"", rir35:x[6]||"", rec:x[7]||"", note:x[8]||"", mus:x[9]||"" }));
     else if(k==="diario"){ st.diario = parseDiario(v); st.diarioNext = 2 + v.length; }
     else if(k==="peso"){ st.peso = v.map((x,i)=>({ row:i+2, date:x[0]||"", kg:num(x[1]), media:num(x[2]), vari:num(x[3]) })).filter(x=>x.date); st.pesoNext = 2 + v.length; }
-    else if(k==="sedute") st.seduteNext = 2 + v.length;
+    else if(k==="sedute"){ st.sedute = v.map((x,i)=>({ row:i+2, date:x[0]||"" })); st.seduteNext = 2 + v.length; }
     else if(k==="misure"){ st.misure = v.map((x,i)=>({ row:i+2, date:x[0]||"", kg:num(x[1]), vita:num(x[2]), braccio:num(x[3]), petto:num(x[4]), coscia:num(x[5]), foto:x[6]||"", note:x[7]||"" })).filter(m=>m.date); st.misureNext = 2 + v.length; }
     else if(k==="misDates") st.misDates = v;
     else if(k==="alts") st.alts = v.filter(x=>x && x[0]).map(x=>({ es:x[0], min:num(x[1]), max:num(x[2]), mus:x[3]||"" }));
@@ -594,7 +594,8 @@ async function saveEx(name, sets, btn, status){
 }
 
 function sessionCard(){
-  const saved = sget("sess_"+TODAY, null);
+  let saved = sget("sess_"+TODAY, null);
+  if(saved && !st.sedute.some(x=>x.row===saved.row && x.date===TODAY)){ saved = null; try{ localStorage.removeItem("sp_sess_"+TODAY); localStorage.removeItem("sp_start_"+TODAY); }catch(e){} ui.sess = null; }
   const d = ui.sess || (ui.sess = { energia: saved ? saved.energia : null, sonno: saved ? saved.sonno : null, corsa: saved ? saved.corsa : null, fastidi: saved ? saved.fastidi : "", note: saved ? saved.note : "", durata: saved ? saved.durata : null });
   const start = sget("start_"+TODAY, null);
   if(d.durata==null && start) d.durata = Math.max(1, Math.round((Date.now()-start)/60000));
@@ -1050,7 +1051,7 @@ function volumeCard(){
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click", ()=>{ ui.tab = b.dataset.tab; sset("tab", ui.tab); render(); window.scrollTo(0,0); }));
 
 /* ---------- copia locale: l'app si apre subito con gli ultimi dati, poi si aggiorna ---------- */
-const SNAP_KEYS = ["guida","scheda","alts","diario","diarioNext","peso","pesoNext","seduteNext","dieta","dietaRows","dietaTot","spesa","misure","misureNext","misDates"];
+const SNAP_KEYS = ["guida","scheda","alts","diario","diarioNext","peso","pesoNext","seduteNext","sedute","dieta","dietaRows","dietaTot","spesa","misure","misureNext","misDates"];
 function saveSnap(){ const o = { t: Date.now() }; SNAP_KEYS.forEach(k=>{ o[k] = st[k]; }); sset("snap", o); }
 function loadSnap(){
   const o = sget("snap", null);
