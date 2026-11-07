@@ -1,8 +1,8 @@
 // Service worker: l'app si apre anche senza rete. La pagina viene presa prima dalla rete
 // (così gli aggiornamenti arrivano subito) e dalla copia salvata solo se la rete manca.
 // Le chiamate al server Apps Script e a Open Food Facts non passano mai dalla cache.
-const CACHE = 'palestra-v1';
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'palestra-v4';
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './archivo-black.woff2'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
