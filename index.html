@@ -7,6 +7,8 @@
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%231E58D2%22/%3E%3Cpath d=%22M14 26v12M20 20v24M44 20v24M50 26v12M20 32h24%22 stroke=%22white%22 stroke-width=%225%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
 <title>Scheda palestra</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
@@ -1104,5 +1106,6 @@ if(cfg) loadAll(); else setSync("err","Da configurare");
 })();
 </script>
 
+<script>if("serviceWorker" in navigator) addEventListener("load", ()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));</script>
 </body>
 </html>
