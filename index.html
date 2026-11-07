@@ -354,7 +354,17 @@ function queueBanner(){
 }
 setInterval(()=>{ if(st.queue.length && navigator.onLine!==false) flushQueue(); }, 30000);
 window.addEventListener("online", ()=>flushQueue());
-document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") flushQueue(); });
+let lastSeen = Date.now();
+document.addEventListener("visibilitychange", async ()=>{
+  if(document.visibilityState!=="visible") return;
+  await flushQueue();
+  // Rileggi il Diario se l'app è rimasta in secondo piano: nel frattempo l'orologio può aver salvato.
+  if(cfg && st.loaded && !st.flushing && Date.now()-lastSeen > 20000 && await refreshDiario()){
+    Object.keys(ui.drafts).forEach(k=>{ if(todayEntry(k)) delete ui.drafts[k]; });
+    softRender();
+  }
+  lastSeen = Date.now();
+});
 
 function parseDiario(rows){
   const out = [];
