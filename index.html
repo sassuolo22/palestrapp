@@ -456,6 +456,7 @@ function repsTxt(a){ return a.filter(x=>x!=null).map(x=>fmt(x,0)).join("/"); }
 
 function renderOggi(){
   const e = secErr(["scheda","guida","diario"]); if(e) main.append(e);
+  if([0,6].indexOf(new Date().getDay())>=0) main.append(recapCard());
   main.append(h("div",{class:"chips", role:"group", "aria-label":"Giorno"}, DAYS.map(d=>h("button",{type:"button", class:"chip", "aria-pressed": String(d===ui.day), onclick:()=>{ ui.day=d; sset("day",d); render(); }}, d))));
   const p = phase();
   const rirTxt = p.deload ? "RIR 3, metà serie" : (p.w<=2 ? "RIR 2 su tutto" : "RIR 1 sugli isolati, 1-2 sui multiarticolari");
@@ -1010,6 +1011,7 @@ function spark(vals){
 }
 function renderStorico(){
   const e = secErr(["diario","scheda"]); if(e) main.append(e);
+  main.append(recapCard());
   main.append(volumeCard());
   main.append(h("div",{class:"note"},"Massimale stimato (e1RM, formula di Epley) dalle ripetizioni della serie peggiore più il RIR. Serve per vedere la tendenza, non come valore esatto."));
   let any = false;
@@ -1069,6 +1071,72 @@ function volumeCard(){
   });
   c.append(list);
   c.append(h("div",{class:"note"},"Serie allenanti registrate rispetto a quelle previste dalla scheda, contando anche gli esercizi alternativi."));
+  return c;
+}
+
+/* ---------- riepilogo della settimana ---------- */
+// Sabato e domenica riassume la settimana in corso, negli altri giorni quella appena finita.
+function recapWeek(){
+  const now = new Date(new Date().toDateString());
+  const dow = (now.getDay()+6)%7; // 0 = lunedì
+  const monday = new Date(now.getTime() - dow*DAY - (dow>=5 ? 0 : 7*DAY));
+  return { monday, sunday: new Date(monday.getTime() + 6*DAY) };
+}
+function inRange(date, a, b){ const d = parseD(date); return !!d && d >= a && d <= b; }
+function avg(a){ return a.length ? a.reduce((x,y)=>x+y,0)/a.length : null; }
+function recapCard(){
+  const { monday, sunday } = recapWeek();
+  const prevMon = new Date(monday.getTime() - 7*DAY), prevSun = new Date(monday.getTime() - DAY);
+  const start = parseD(st.guida[0] && st.guida[0][0]);
+  const w = start ? Math.floor((monday - start)/DAY/7) + 1 : null;
+  const deload = w === 6;
+  const tmin = num(st.guida[1] && st.guida[1][0]), tmax = num(st.guida[2] && st.guida[2][0]);
+
+  const ent = st.diario.filter(d=>inRange(d.date, monday, sunday));
+  const days = new Set(ent.map(d=>d.date)).size;
+  const planned = {}, done = {};
+  st.scheda.forEach(x=>{ if(x.mus) planned[x.mus] = (planned[x.mus]||0) + (deload ? Math.ceil(x.serie/2) : x.serie); });
+  ent.forEach(d=>{ const m = muscleOf(d.es); if(m) done[m] = (done[m]||0) + d.reps.filter(r=>r!=null).length; });
+  const totPl = Object.values(planned).reduce((a,b)=>a+b,0), totDn = Object.values(done).reduce((a,b)=>a+b,0);
+  const behind = Object.keys(planned).filter(m=>(done[m]||0) < planned[m]*0.7).map(m=>m+" "+(done[m]||0)+"/"+planned[m]);
+
+  const kgW = st.peso.filter(x=>x.kg!=null && inRange(x.date, monday, sunday)).map(x=>x.kg);
+  const kgP = st.peso.filter(x=>x.kg!=null && inRange(x.date, prevMon, prevSun)).map(x=>x.kg);
+  const dKg = kgW.length>=2 && kgP.length>=2 ? avg(kgW) - avg(kgP) : null;
+
+  const rec = st.recupero.filter(x=>inRange(x.date, monday, sunday));
+  const sonno = avg(rec.map(x=>x.sonno).filter(v=>v!=null)), rhr = avg(rec.map(x=>x.rhr).filter(v=>v!=null));
+
+  // Esercizi cresciuti di più: miglior e1RM della settimana contro l'ultimo valore precedente.
+  const gains = [];
+  new Set(ent.map(d=>d.es)).forEach(es=>{
+    const cur = ent.filter(d=>d.es===es && d.e1rm!=null).map(d=>d.e1rm);
+    const before = st.diario.filter(d=>d.es===es && d.e1rm!=null && parseD(d.date) && parseD(d.date) < monday);
+    if(!cur.length || !before.length) return;
+    const g = Math.max.apply(null, cur) - before[before.length-1].e1rm;
+    if(g > 0.4) gains.push([es, g]);
+  });
+  gains.sort((a,b)=>b[1]-a[1]);
+
+  const hm = x=>{ if(x==null) return "–"; const m = Math.round(x*60); return Math.floor(m/60)+"h"+String(m%60).padStart(2,"0"); };
+  const c = h("section",{class:"card recap"});
+  c.append(h("div",{class:"exh"}, h("h3",null,"Riepilogo della settimana"), h("span",{class:"pill"}, dstr(monday).slice(0,5)+" – "+dstr(sunday).slice(0,5)+(w && w>=1 ? " · sett. "+w : ""))));
+  if(!ent.length && !kgW.length && !rec.length){ c.append(h("div",{class:"note"},"Nessun dato per questa settimana: il riepilogo si riempie da solo con allenamenti, pesate e dati dell'orologio.")); return c; }
+  c.append(h("div",{class:"stats"},
+    h("div",{class:"stat"}, h("div",{class:"v"}, days+"/5"), h("div",{class:"k"},"Allenamenti")),
+    h("div",{class:"stat"}, h("div",{class:"v"}, totDn+"/"+totPl), h("div",{class:"k"},"Serie allenanti")),
+    h("div",{class:"stat"}, h("div",{class:"v"}, dKg!=null ? (dKg>0?"+":"")+fmt(dKg,2) : "–"), h("div",{class:"k"}, dKg!=null ? "Peso medio vs settimana prima (kg)" : "Peso: servono 2 pesate per settimana")),
+    h("div",{class:"stat"}, h("div",{class:"v"}, hm(sonno)), h("div",{class:"k"}, "Sonno medio"+(rhr!=null ? " · FC riposo "+fmt(rhr,0) : "")))));
+  if(gains.length) c.append(h("div",{class:"note"}, h("b",null,"Cresciuti: "), gains.slice(0,3).map(g=>g[0]+" +"+fmt(g[1],1)+" kg e1RM").join(" · ")));
+  if(behind.length && days>=3) c.append(h("div",{class:"note"}, h("b",null,"Indietro: "), behind.join(" · ")));
+
+  // Una sola indicazione, la più importante.
+  let msg = "Settimana in linea: continua così.", cls = "good";
+  if(days < 3 && ent.length) { msg = "Pochi allenamenti questa settimana: la prossima punta a farli tutti, i carichi restano quelli."; cls = "warn"; }
+  else if(dKg!=null && tmin!=null && dKg < tmin - 0.15) { msg = "Il peso non sale abbastanza: guarda il controllo calorie nella tab Peso."; cls = "warn"; }
+  else if(dKg!=null && tmax!=null && dKg > tmax + 0.15) { msg = "Il peso sale più del previsto: guarda il controllo calorie nella tab Peso."; cls = "warn"; }
+  else if(sonno!=null && sonno < 6.5) { msg = "Il punto debole è il sonno: anche 30 minuti in più a notte aiutano più di qualsiasi serie."; cls = "warn"; }
+  c.append(h("div",{class:"pill "+cls, style:"display:block;border-radius:8px;padding:8px 10px;font-weight:500"}, msg));
   return c;
 }
 
