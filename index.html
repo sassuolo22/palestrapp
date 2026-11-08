@@ -93,6 +93,7 @@ input.t{text-align:left;font-size:16px}
 .banner .linkbtn{color:inherit}
 .status.warn{color:var(--warn)}
 .sugg{font-size:15px;border-left:3px solid var(--accent);padding:2px 0 2px 10px}
+.vlink{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
 .warm{display:flex;flex-direction:column;gap:2px;background:var(--sunk);border-radius:8px;padding:8px 10px}
 .wsets{font-family:var(--display);font-weight:600;font-size:19px}
 .altlist{display:flex;flex-wrap:wrap;gap:6px}
@@ -212,11 +213,36 @@ function suggest(ex, name, last){
   if(/^Riduci/.test(last.next)){ let kg = roundTo(c*0.925, inc); if(kg>=c) kg = roundTo(c-inc, inc); kg = Math.max(0, kg); return { kg:kg, txt:fmt(kg-c)+" kg rispetto all'ultima volta" }; }
   return { kg:c, txt:"stesso carico, cerca una ripetizione in più" };
 }
+// Riscaldamento specifico. Rampa completa solo sul primo esercizio della giornata per quel muscolo;
+// se il muscolo ha già lavorato basta una serie di avvicinamento, sugli isolati nessuna.
+const EN = { "Panca manubri 30°":"incline dumbbell press", "Rematore manubrio":"one arm dumbbell row", "Lat machine":"lat pulldown", "Lento manubri":"seated dumbbell shoulder press",
+  "Alzate laterali manubri":"dumbbell lateral raise", "Curl bilanciere EZ":"EZ bar curl", "Pushdown al cavo":"cable triceps pushdown", "Squat":"barbell back squat",
+  "Stacco rumeno":"romanian deadlift", "Leg extension":"leg extension", "Leg curl sdraiato":"lying leg curl", "Calf in piedi":"standing calf raise",
+  "Spinte manubri panca piana":"flat dumbbell bench press", "Croci ai cavi":"cable chest fly", "Alzate laterali ai cavi":"cable lateral raise",
+  "Overhead extension al cavo":"cable overhead triceps extension", "Trazioni":"pull up", "Pulley":"seated cable row", "Alzate posteriori":"rear delt fly",
+  "Bayesian curl":"bayesian cable curl", "Curl a martello":"hammer curl", "Hack squat o pressa":"hack squat", "Leg curl seduto":"seated leg curl",
+  "Affondi bulgari":"bulgarian split squat", "Crunch al cavo":"cable crunch", "Panca piana bilanciere":"barbell bench press", "Chest press":"machine chest press",
+  "Peck deck":"pec deck fly", "Piegamenti zavorrati":"weighted push up", "Rematore bilanciere":"barbell row", "Rematore alla macchina":"machine row",
+  "Pullover al cavo":"cable pullover", "Lento bilanciere":"barbell overhead press", "Shoulder press alla macchina":"machine shoulder press",
+  "Alzate laterali alla macchina":"machine lateral raise", "Face pull":"face pull", "Reverse peck deck":"reverse pec deck", "Curl manubri panca inclinata":"incline dumbbell curl",
+  "Curl al cavo":"cable curl", "French press":"EZ bar skull crusher", "Dip alle parallele":"parallel bar dips", "Pressa 45°":"45 degree leg press", "Goblet squat":"goblet squat",
+  "Good morning":"barbell good morning", "Calf seduto":"seated calf raise", "Calf alla pressa":"leg press calf raise", "Leg raise":"hanging leg raise", "Ab wheel":"ab wheel rollout" };
+function videoUrl(name){ return "https://www.youtube.com/results?search_query="+encodeURIComponent((EN[name] ? EN[name]+" proper form" : name+" esecuzione corretta")); }
+function warmFirst(ex){
+  const list = st.scheda.filter(x=>x.giorno===ex.giorno);
+  const i = list.findIndex(x=>x.es===ex.es);
+  const near = { "Deltoidi anteriori":["Petto"], "Bicipiti":["Dorso"], "Deltoidi posteriori":["Dorso"], "Tricipiti":["Petto","Deltoidi anteriori"] };
+  const same = [ex.mus].concat(near[ex.mus]||[]);
+  return !list.slice(0, Math.max(0,i)).some(x=>same.indexOf(x.mus)>=0);
+}
 function warmup(ex, name, kg){
-  if(!isCompound(ex) || name==="Trazioni" || kg==null || kg<=0) return null;
+  const first = warmFirst(ex), comp = isCompound(ex);
+  if(name==="Trazioni") return first ? { txt:"5 trazioni a corpo libero (o assistite) lontano dal cedimento" } : null;
+  if(kg==null || kg<=0) return null;
   const inc = incFor(name, ex), bar = BAR[name] || 0, out = [];
-  [[0.5,8],[0.7,4],[0.85,2]].forEach(s=>{ const w = Math.max(bar, roundTo(kg*s[0], inc)); if(w < kg && !out.some(o=>o[0]===w)) out.push([w, s[1]]); });
-  return out.length ? out : null;
+  const scheme = comp ? (first ? [[0.5,8],[0.7,4],[0.85,2]] : [[0.8,3]]) : (first ? [[0.5,10]] : []);
+  scheme.forEach(s=>{ const w = Math.max(bar, roundTo(kg*s[0], inc)); if(w < kg && !out.some(o=>o[0]===w)) out.push([w, s[1]]); });
+  return out.length ? { sets:out } : null;
 }
 function plates(kg, bar){
   if(kg==null) return "";
@@ -498,7 +524,7 @@ function exCard(ex, p){
   const range = (tg.min!=null && tg.max!=null) ? fmt(tg.min,0)+"–"+fmt(tg.max,0) : "";
   const card = h("section",{class:"card"+(today?" done":""), "aria-label":name});
   card.append(h("div",{class:"exh"},
-    h("div",{style:"min-width:0"}, h("h3",null,name), h("div",{class:"mus"}, swapped ? "Al posto di "+ex.es : ex.mus)),
+    h("div",{style:"min-width:0"}, h("h3",null,name), h("div",{class:"mus"}, swapped ? "Al posto di "+ex.es : ex.mus, " · ", h("a",{href:videoUrl(name), target:"_blank", rel:"noopener", class:"vlink"},"Come si fa ▶"))),
     h("div",{class:"target"}, sets+" × "+range, h("small",null,"RIR "+rir+" · "+ex.rec))));
   if(ex.note && !swapped) card.append(h("div",{class:"note"}, ex.note));
   if(last){
@@ -514,7 +540,7 @@ function exCard(ex, p){
     if(plateEl) plateEl.textContent = plates(dr.carico, BAR[name]);
     const w = warmup(ex, name, dr.carico);
     warmEl.replaceChildren(); warmEl.hidden = !w;
-    if(w) warmEl.append(h("span",{class:"lbl"},"Riscaldamento"), h("span",{class:"wsets"}, w.map(x=>fmt(x[0])+" kg × "+x[1]).join("  ·  ")), h("span",{class:"note"},"Serie di avvicinamento: non contano nelle serie della scheda."));
+    if(w) warmEl.append(h("span",{class:"lbl"},"Riscaldamento"), h("span",{class:"wsets"}, w.txt || w.sets.map(x=>fmt(x[0])+" kg × "+x[1]).join("  ·  ")), h("span",{class:"note"},"Serie di avvicinamento, recupero breve (1 min): non contano nelle serie della scheda."));
   };
   const inp = h("input",{class:"f", id:"load-"+slug(key), type:"text", inputmode:"decimal", "aria-label":"Carico in kg", placeholder:"kg", value: dr.carico!=null ? fmt(dr.carico) : ""});
   inp.addEventListener("input", ()=>{ dr.carico = num(inp.value); upd(); });
